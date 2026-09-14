@@ -17,6 +17,7 @@ frontend/next-env.d.ts
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+.npmrc
 
 # --- Env files (never commit real secrets) ---
 .env

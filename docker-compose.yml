@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8096:8096"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8096
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./frontend/.env
+    environment:
+      - PORT=3001
+    restart: unless-stopped
