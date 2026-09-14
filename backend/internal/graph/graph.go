@@ -1,7 +1,3 @@
-// Package graph turns raw Qdrant points into graph nodes, and pairs them
-// with edges — either Aurora's real typed edges when available, or a
-// cosine-similarity fallback (mirroring the clustering heuristic Aurora
-// itself uses, default threshold 0.70) when they are not.
 package graph
 
 import (
@@ -34,7 +30,6 @@ type Graph struct {
 	Edges []Edge `json:"edges"`
 }
 
-// BuildNodes converts Qdrant points into graph nodes.
 func BuildNodes(points []qdrant.Point) []Node {
 	nodes := make([]Node, 0, len(points))
 	for _, p := range points {
@@ -43,8 +38,6 @@ func BuildNodes(points []qdrant.Point) []Node {
 	return nodes
 }
 
-// RealEdges converts Aurora's typed edges into graph edges, keeping only
-// those whose endpoints are both present in knownIDs.
 func RealEdges(real []edges.Edge, knownIDs map[string]bool) []Edge {
 	out := make([]Edge, 0, len(real))
 	for _, e := range real {
@@ -62,8 +55,6 @@ func RealEdges(real []edges.Edge, knownIDs map[string]bool) []Edge {
 	return out
 }
 
-// SimilarityEdges links any two nodes whose vector cosine similarity is
-// >= threshold. Used when Aurora's real edges aren't available.
 func SimilarityEdges(points []qdrant.Point, threshold float64) []Edge {
 	var result []Edge
 	for i := 0; i < len(points); i++ {

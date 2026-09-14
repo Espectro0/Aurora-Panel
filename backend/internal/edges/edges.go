@@ -1,7 +1,3 @@
-// Package edges loads Aurora's real, typed memory edges (participates,
-// mentions, relates, prefers, reflects_on, leads_to, sentiment) from the
-// edges.json file Aurora's qdrant.Store persists them to. That file lives
-// outside Qdrant, so it's read either from a local path or an HTTP URL.
 package edges
 
 import (
@@ -10,12 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 )
 
-// Edge mirrors Aurora's internal/memory.Edge as it is JSON-encoded (no
-// struct tags there, so field names are the JSON keys verbatim).
 type Edge struct {
 	ID        string    `json:"ID"`
 	SourceID  string    `json:"SourceID"`
@@ -25,24 +18,15 @@ type Edge struct {
 	CreatedAt time.Time `json:"CreatedAt"`
 }
 
-// Configured reports whether a real edges source was provided.
-func Configured(path, url string) bool {
-	return path != "" || url != ""
+func Configured(url string) bool {
+	return url != ""
 }
 
-// Load reads Aurora's edges.json (a map of source node ID -> []Edge, as
-// written by Store.saveEdges) from a local path or, if empty, an HTTP URL.
-// It returns (nil, nil) when neither source is configured.
-func Load(ctx context.Context, path, url string) ([]Edge, error) {
+func Load(ctx context.Context, url string) ([]Edge, error) {
 	var raw []byte
 	var err error
 
 	switch {
-	case path != "":
-		raw, err = os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("edges: read %s: %w", path, err)
-		}
 	case url != "":
 		raw, err = fetch(ctx, url)
 		if err != nil {

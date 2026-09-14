@@ -17,11 +17,7 @@ type Config struct {
 	SimilarityThreshold float64
 	MaxGraphPoints      int
 	AllowedOrigins      []string
-	// EdgesPath/EdgesURL point at Aurora's real edges.json (typed edges:
-	// participates, mentions, relates, ...). At most one should be set. If
-	// neither is set, the graph falls back to similarity-derived edges.
-	EdgesPath string
-	EdgesURL  string
+	EdgesURL            string
 }
 
 func Load() Config {
@@ -33,13 +29,10 @@ func Load() Config {
 		SimilarityThreshold: envFloat("SIMILARITY_THRESHOLD", 0.75),
 		MaxGraphPoints:      envInt("MAX_GRAPH_POINTS", 1500),
 		AllowedOrigins:      envList("ALLOWED_ORIGINS", "http://localhost:3000"),
-		EdgesPath:           os.Getenv("EDGES_PATH"),
-		EdgesURL:            os.Getenv("EDGES_URL"),
+		EdgesURL:            os.Getenv("AURORA_EDGES_API"),
 	}
 }
 
-// RequestTimeout bounds how long a single API request may take to reach
-// Qdrant and build the graph.
 func (c Config) RequestTimeout() time.Duration {
 	return 30 * time.Second
 }

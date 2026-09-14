@@ -87,12 +87,9 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, graph.Graph{Nodes: nodes, Edges: graphEdges})
 }
 
-// resolveEdges prefers Aurora's real typed edges (edges.json, via EDGES_PATH
-// or EDGES_URL) and falls back to cosine-similarity edges when no real
-// source is configured or it fails to load.
 func (s *Server) resolveEdges(ctx context.Context, points []qdrant.Point, nodes []graph.Node, threshold float64) ([]graph.Edge, error) {
-	if edges.Configured(s.cfg.EdgesPath, s.cfg.EdgesURL) {
-		real, err := edges.Load(ctx, s.cfg.EdgesPath, s.cfg.EdgesURL)
+	if edges.Configured(s.cfg.EdgesURL) {
+		real, err := edges.Load(ctx, s.cfg.EdgesURL)
 		if err != nil {
 			return graph.SimilarityEdges(points, threshold), err
 		}
