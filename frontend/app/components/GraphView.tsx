@@ -6,11 +6,12 @@ import { fetchGraph } from "../lib/api";
 import {
   colorForEdgeType,
   colorForType,
-  EDGE_COLORS,
   GraphData,
-  NODE_COLORS,
+  resolveColor,
 } from "../lib/types";
+import { useTheme } from "../lib/useTheme";
 import NodePanel, { neighborsFor, Selection } from "./NodePanel";
+import { EtiquetteButton, Problem } from "./Postal";
 
 export default function GraphView() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,6 +23,7 @@ export default function GraphView() {
   const [error, setError] = useState<string | null>(null);
   const [threshold, setThreshold] = useState(0.75);
   const [selection, setSelection] = useState<Selection | null>(null);
+  const { theme } = useTheme();
 
   const load = useCallback((t: number) => {
     setLoading(true);
@@ -46,18 +48,27 @@ export default function GraphView() {
       ([{ Network }, { DataSet }]) => {
         if (cancelled || !containerRef.current) return;
 
+        // el canvas necesita el nombre real de la fuente que genera next/font
+        const fontFace =
+          getComputedStyle(document.documentElement).getPropertyValue("--font-archivo").trim() ||
+          "system-ui";
+        // el canvas no entiende var(): se resuelven las tintas del tema actual
+        const paper = resolveColor("var(--stamp-paper)");
+        const labelInk = resolveColor("var(--ink-2)");
+        const edgeInk = new Map(data.edges.map((e) => [e.type, resolveColor(colorForEdgeType(e.type))]));
+
         const nodes = new DataSet(
           data.nodes.map((n) => {
-            const color = colorForType(n.type);
+            const color = resolveColor(colorForType(n.type));
             return {
               id: n.id,
-              label: n.id.slice(0, 8),
+              label: n.content.length > 28 ? `${n.content.slice(0, 26).trimEnd()}…` : n.content || n.type,
               title: n.content,
               color: {
-                background: "#000000",
+                background: paper,
                 border: color,
-                highlight: { background: "#000000", border: color },
-                hover: { background: "#000000", border: color },
+                highlight: { background: color, border: color },
+                hover: { background: paper, border: color },
               },
             };
           }),
@@ -69,7 +80,8 @@ export default function GraphView() {
             from: e.source,
             to: e.target,
             width: Math.max(1, e.weight * 3),
-            color: "#000000",
+            // las rutas se dibujan a mano en afterDrawing
+            color: { color: "rgba(0,0,0,0)", highlight: "rgba(0,0,0,0)", hover: "rgba(0,0,0,0)" },
           })),
         );
 
@@ -88,7 +100,7 @@ export default function GraphView() {
             shape: "dot",
             size: 10,
             borderWidth: 2,
-            font: { color: "#8fffb0", face: "monospace" },
+            font: { color: labelInk, face: fontFace, size: 12 },
             chosen: {
               node: (values: any, id: any, selected: boolean) => {
                 if (selected) {
@@ -100,9 +112,8 @@ export default function GraphView() {
             },
           },
           edges: {
-            color: "#39ff1466",
             smooth: false,
-            shadow: { enabled: true, size: 8 },
+            shadow: false,
           },
         };
 
@@ -125,7 +136,8 @@ export default function GraphView() {
           animationFrameRef.current = requestAnimationFrame(animateEdges);
         });
 
-        network.on("afterDrawing", (ctx: CanvasRenderingContext2D) => {
+        // las rutas van detrás de nodos y etiquetas
+        network.on("beforeDrawing", (ctx: CanvasRenderingContext2D) => {
           const positions = network.getPositions();
           const selectedIds = new Set(network.getSelectedNodes() as string[]);
 
@@ -152,7 +164,7 @@ export default function GraphView() {
             ctx.save();
             ctx.setLineDash([6, 6]);
             ctx.lineDashOffset = dashOffset;
-            ctx.strokeStyle = colorForEdgeType(e.type);
+            ctx.strokeStyle = edgeInk.get(e.type) ?? labelInk;
             ctx.lineWidth = Math.max(1, e.weight * 2);
             ctx.beginPath();
             ctx.moveTo(startX, startY);
@@ -160,6 +172,12 @@ export default function GraphView() {
             ctx.stroke();
             ctx.restore();
           });
+        });
+
+        // deja margen para que las etiquetas no se corten en los bordes
+        network.once("stabilizationIterationsDone", () => {
+          network.fit();
+          network.moveTo({ scale: network.getScale() * 0.75 });
         });
 
         network.on("click", (params) => {
@@ -181,7 +199,7 @@ export default function GraphView() {
       if (animationFrameRef.current)
         cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [data]);
+  }, [data, theme]);
 
   useEffect(() => {
     return () => {
@@ -206,102 +224,93 @@ export default function GraphView() {
   const nodeTypesPresent = useMemo(() => {
     if (!data) return [];
     return Array.from(new Set(data.nodes.map((n) => n.type)));
-  }, [data]);
+  }, [data, theme]);
 
   const edgeTypesPresent = useMemo(() => {
     if (!data) return [];
     return Array.from(new Set(data.edges.map((e) => e.type)));
-  }, [data]);
+  }, [data, theme]);
+
+  const legendRow = (label: string, types: string[], colorFor: (t: string) => string) => (
+    <div>
+      <h2 className="text-xs text-ink-2">{label}</h2>
+      <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+        {types.map((type) => (
+          <li key={type} className="postal flex items-center gap-1.5 text-[0.8rem]" style={{ color: colorFor(type) }}>
+            <span className="size-2.5" style={{ background: colorFor(type) }} aria-hidden="true" />
+            {type.replace(/_/g, " ")}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden">
-      <div className="pointer-events-none absolute top-0 left-0 z-20 flex flex-col gap-3 p-5 font-mono">
+    <div
+      className="absolute inset-0 overflow-hidden bg-aero"
+      style={{
+        // módulo de perforación: la misma rejilla de 12px de los sellos
+        backgroundImage: "radial-gradient(circle, color-mix(in srgb, var(--rule) 45%, transparent) 1.2px, transparent 1.5px)",
+        backgroundSize: "24px 24px",
+      }}
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 mx-auto flex w-full max-w-[1200px] flex-col items-start gap-3 px-4 pt-6 sm:px-6">
         <div>
-          <h1
-            className="text-xl tracking-[0.3em] text-[#39ff14]"
-            style={{
-              textShadow:
-                "0 0 5px #39ff14, 0 0 10px #39ff14, 0 0 20px #39ff14, 0 0 40px #39ff14, 0 0 80px #39ff14, 2px 2px 4px rgba(0,0,0,1)",
-            }}
-          >
-            AURORA :: MIND GRAPH
+          <h1 className="text-[clamp(1.8rem,3.4vw,2.4rem)] leading-none font-bold [font-stretch:84%] [word-spacing:0.1em]">
+            Memory map
           </h1>
-          <p className="mt-1 text-xs text-[#5fae7a]">
+          <p className="mt-1.5 text-sm text-ink-2">
             {data
-              ? `${data.nodes.length} nodes / ${data.edges.length} links`
-              : "connecting..."}
+              ? `${data.nodes.length.toLocaleString("en")} memories · ${data.edges.length.toLocaleString("en")} links`
+              : "Connecting…"}
           </p>
         </div>
 
-        <div className="flex flex-row flex-wrap gap-3 rounded border border-[#39ff1444] bg-black/60 px-3 py-2 text-xs">
-          <span>Node Info</span>
-          {nodeTypesPresent.map((type) => {
-            const color = colorForType(type);
-            return (
-              <span
-                key={type}
-                className="flex items-center gap-2"
-                style={{ color }}
-              >
-                <span
-                  className="h-2 w-2 rounded-full border"
-                  style={{ borderColor: color, boxShadow: `0 0 6px ${color}` }}
-                />
-                {type}
-              </span>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-row flex-wrap gap-3 rounded border border-[#39ff1444] bg-black/60 px-3 py-2 text-xs">
-          <span>Edge Info</span>
-          {edgeTypesPresent.map((type) => {
-            const color = colorForEdgeType(type);
-            return (
-              <span
-                key={type}
-                className="flex items-center gap-2"
-                style={{ color }}
-              >
-                <span
-                  className="h-2 w-2 rounded-full border"
-                  style={{ borderColor: color, boxShadow: `0 0 6px ${color}` }}
-                />
-                {type}
-              </span>
-            );
-          })}
-        </div>
+        {data && (nodeTypesPresent.length > 0 || edgeTypesPresent.length > 0) && (
+          <div className="on-desk hidden max-w-[420px] sm:block">
+            <div className="flex flex-col gap-3 bg-stamp-paper px-4 py-3">
+              {nodeTypesPresent.length > 0 && legendRow("Memories", nodeTypesPresent, colorForType)}
+              {edgeTypesPresent.length > 0 && legendRow("Links", edgeTypesPresent, colorForEdgeType)}
+            </div>
+          </div>
+        )}
       </div>
 
-      <button
-        onClick={() =>
-          networkRef.current?.fit({
-            animation: { duration: 500, easingFunction: "easeInOutQuad" },
-          })
-        }
-        className="pointer-events-auto absolute bottom-5 left-5 z-20 rounded border border-[#39ff1444] bg-black/60 px-3 py-2 font-mono text-xs text-[#39ff14] hover:bg-[#39ff1422]"
-      >
-        ⌖ Center
-      </button>
+      <div className="pointer-events-none absolute inset-x-0 bottom-6 z-10 mx-auto w-full max-w-[1200px] px-4 sm:px-6 [&>*]:pointer-events-auto">
+        <EtiquetteButton
+          onClick={() =>
+            networkRef.current?.fit({
+              animation: { duration: 500, easingFunction: "easeInOutQuad" },
+            })
+          }
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <circle cx="8" cy="8" r="4.5" />
+            <path d="M8 1v3M8 12v3M1 8h3M12 8h3" strokeLinecap="round" />
+          </svg>
+          Fit to screen
+        </EtiquetteButton>
+      </div>
 
       {loading && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center font-mono text-sm text-[#39ff14]">
-          <p className="animate-pulse tracking-widest">Loading Graph...</p>
+        <div className="absolute inset-0 z-10 flex items-center justify-center">
+          <p className="animate-pulse text-sm text-ink-2">Loading the memory map…</p>
         </div>
       )}
 
       {error && !loading && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center font-mono text-sm text-red-400">
-          <div className="rounded border border-red-500/50 bg-black/80 px-6 py-4">
-            <p>Error loading graph: {error}</p>
-            <button
-              onClick={() => load(threshold)}
-              className="mt-3 rounded border border-red-500/60 px-3 py-1 text-xs hover:bg-red-500/10"
-            >
-              retry
-            </button>
+        <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+          <div className="on-desk max-w-md">
+            <div className="bg-onion p-6">
+              <Problem what="the memory graph" message={error} onRetry={() => load(threshold)} />
+            </div>
           </div>
+        </div>
+      )}
+
+      {data && !loading && data.nodes.length === 0 && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center">
+          <p className="text-sm text-ink-2">No memories stored yet.</p>
         </div>
       )}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/Espectro0/AuroraPanel/internal/config"
 	"github.com/Espectro0/AuroraPanel/internal/edges"
 	"github.com/Espectro0/AuroraPanel/internal/graph"
+	"github.com/Espectro0/AuroraPanel/internal/journal"
 	"github.com/Espectro0/AuroraPanel/internal/qdrant"
 )
 
@@ -29,6 +30,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/graph", s.handleGraph)
+	mux.HandleFunc("/api/journal", s.handleJournal)
 	return s.withCORS(mux)
 }
 
@@ -87,9 +89,23 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, graph.Graph{Nodes: nodes, Edges: graphEdges})
 }
 
+func (s *Server) handleJournal(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.RequestTimeout())
+	defer cancel()
+
+	entries, err := journal.Load(ctx, s.cfg.BaseURL+"/journal")
+	if err != nil {
+		log.Printf("journal: load failed: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to reach aurora: " + err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, entries)
+}
+
 func (s *Server) resolveEdges(ctx context.Context, points []qdrant.Point, nodes []graph.Node, threshold float64) ([]graph.Edge, error) {
-	if edges.Configured(s.cfg.EdgesURL) {
-		real, err := edges.Load(ctx, s.cfg.EdgesURL)
+	if edges.Configured(s.cfg.BaseURL + "/edges") {
+		real, err := edges.Load(ctx, s.cfg.BaseURL+"/edges")
 		if err != nil {
 			return graph.SimilarityEdges(points, threshold), err
 		}

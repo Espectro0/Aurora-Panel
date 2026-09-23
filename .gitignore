@@ -10,6 +10,9 @@ frontend/out/
 frontend/.vercel
 frontend/*.tsbuildinfo
 frontend/next-env.d.ts
+.impeccable
+PRODUCT.md
+DESIGN.md
 /.pnp
 .pnp.*
 .yarn/*

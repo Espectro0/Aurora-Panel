@@ -1,44 +1,283 @@
 @import "tailwindcss";
 
+/* Airmail: aerogramme blue paper, par avion border, cancellation ink. */
 :root {
-  --background: #000603;
-  --foreground: #c9ffd6;
+  color-scheme: light;
+  --desk: #bccde2;
+  --aero: #d9e5f2;
+  --onion: #eef3f9;
+  --stamp-paper: #fbfbf8;
+  --ink: #14203b;
+  --ink-2: #3a4d74;
+  --ink-3: #5c6f93;
+  --rule: #9fb4d0;
+  --scroll: #8ea5c6;
+  --airmail-red: #cf3a2c;
+  --airmail-blue: #22409a;
+  --cancel: #1b1d24;
+  --warn: #946106;
+  --danger: #b0283a;
+  --shadow: 20 32 59;
+
+  /* stamp inks: one per mood, memory type and link type */
+  --mood-neutral: #5b6478;
+  --mood-tranquila: #28746b;
+  --mood-atenta: #22409a;
+  --mood-curiosa: #0b6f92;
+  --mood-contenta: #267a3d;
+  --mood-satisfecha: #5d7f1d;
+  --mood-entusiasmada: #b83a14;
+  --mood-reflexiva: #6b3fa0;
+  --mood-preocupada: #946106;
+  --mood-triste: #3f4f7a;
+  --mood-frustrada: #b0283a;
+
+  --type-person: #22409a;
+  --type-conversation: #a3325f;
+  --type-concept: #267a3d;
+  --type-event: #946106;
+  --type-reflection: #6b3fa0;
+  --type-project: #b83a14;
+  --type-default: #3f4f7a;
+
+  --edge-participates: #22409a;
+  --edge-mentions: #946106;
+  --edge-relates: #267a3d;
+  --edge-prefers: #a3325f;
+  --edge-reflects_on: #6b3fa0;
+  --edge-leads_to: #b83a14;
+  --edge-sentiment: #b0283a;
+  --edge-similarity: #5b6478;
+}
+
+/* Airmail at night: navy aerogramme, pale cancellation ink, lifted stamp inks.
+   Follows the system unless the header toggle pinned a theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --desk: #0b1120;
+    --aero: #131d33;
+    --onion: #18253f;
+    --stamp-paper: #1f2d4a;
+    --ink: #e7edf7;
+    --ink-2: #a8b7d2;
+    --ink-3: #8394b5;
+    --rule: #31466c;
+    --scroll: #33476b;
+    --airmail-red: #e5594b;
+    --airmail-blue: #8ea8f5;
+    --cancel: #dfe6f3;
+    --warn: #e8b64a;
+    --danger: #f07a86;
+    --shadow: 0 0 0;
+
+    --mood-neutral: #a3acc2;
+    --mood-tranquila: #6cc4b6;
+    --mood-atenta: #8ea8f5;
+    --mood-curiosa: #5cc0e6;
+    --mood-contenta: #72c98a;
+    --mood-satisfecha: #b3cf6a;
+    --mood-entusiasmada: #f08a5d;
+    --mood-reflexiva: #b99af0;
+    --mood-preocupada: #e8b64a;
+    --mood-triste: #9aaad6;
+    --mood-frustrada: #f07a86;
+
+    --type-person: #8ea8f5;
+    --type-conversation: #ef8fb6;
+    --type-concept: #72c98a;
+    --type-event: #e8b64a;
+    --type-reflection: #b99af0;
+    --type-project: #f08a5d;
+    --type-default: #9aaad6;
+
+    --edge-participates: #8ea8f5;
+    --edge-mentions: #e8b64a;
+    --edge-relates: #72c98a;
+    --edge-prefers: #ef8fb6;
+    --edge-reflects_on: #b99af0;
+    --edge-leads_to: #f08a5d;
+    --edge-sentiment: #f07a86;
+    --edge-similarity: #a3acc2;
+}
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --desk: #0b1120;
+  --aero: #131d33;
+  --onion: #18253f;
+  --stamp-paper: #1f2d4a;
+  --ink: #e7edf7;
+  --ink-2: #a8b7d2;
+  --ink-3: #8394b5;
+  --rule: #31466c;
+  --scroll: #33476b;
+  --airmail-red: #e5594b;
+  --airmail-blue: #8ea8f5;
+  --cancel: #dfe6f3;
+  --warn: #e8b64a;
+  --danger: #f07a86;
+  --shadow: 0 0 0;
+
+  --mood-neutral: #a3acc2;
+  --mood-tranquila: #6cc4b6;
+  --mood-atenta: #8ea8f5;
+  --mood-curiosa: #5cc0e6;
+  --mood-contenta: #72c98a;
+  --mood-satisfecha: #b3cf6a;
+  --mood-entusiasmada: #f08a5d;
+  --mood-reflexiva: #b99af0;
+  --mood-preocupada: #e8b64a;
+  --mood-triste: #9aaad6;
+  --mood-frustrada: #f07a86;
+
+  --type-person: #8ea8f5;
+  --type-conversation: #ef8fb6;
+  --type-concept: #72c98a;
+  --type-event: #e8b64a;
+  --type-reflection: #b99af0;
+  --type-project: #f08a5d;
+  --type-default: #9aaad6;
+
+  --edge-participates: #8ea8f5;
+  --edge-mentions: #e8b64a;
+  --edge-relates: #72c98a;
+  --edge-prefers: #ef8fb6;
+  --edge-reflects_on: #b99af0;
+  --edge-leads_to: #f08a5d;
+  --edge-sentiment: #f07a86;
+  --edge-similarity: #a3acc2;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-mono: var(--font-mono);
+  --color-desk: var(--desk);
+  --color-aero: var(--aero);
+  --color-onion: var(--onion);
+  --color-stamp-paper: var(--stamp-paper);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-rule: var(--rule);
+  --color-airmail-red: var(--airmail-red);
+  --color-airmail-blue: var(--airmail-blue);
+  --color-cancel: var(--cancel);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-archivo), system-ui, sans-serif;
+  --font-serif: var(--font-alegreya), Georgia, serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono), "Share Tech Mono", monospace;
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--font-archivo), system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  word-spacing: 0.04em;
 }
 
 ::selection {
-  background: #39ff1433;
-  color: #eaffef;
+  background: color-mix(in srgb, var(--airmail-blue) 22%, transparent);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--airmail-blue);
+  outline-offset: 3px;
+}
+
+html {
+  scrollbar-color: var(--scroll) var(--desk);
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #000603;
+  background: var(--desk);
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #39ff1444;
-  border-radius: 4px;
+  background: var(--scroll);
+  border: 2px solid var(--desk);
+  border-radius: 6px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #39ff1488;
+a {
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
 }
 
-input[type="range"] {
-  accent-color: #39ff14;
+/* Condensed caps used for every postal mark: postmarks, etiquettes, stamps. */
+.postal {
+  font-stretch: 72%;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Par avion chevrons: red and blue bands on the diagonal. */
+.par-avion {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--airmail-red) 0 12px,
+    var(--stamp-paper) 12px 18px,
+    var(--airmail-blue) 18px 30px,
+    var(--stamp-paper) 30px 36px
+  );
+}
+
+/* Perforated stamp edge; the holes sit on a 12px module. */
+.perforated {
+  --r: 4px;
+  padding: calc(2.5 * var(--r));
+  background: var(--stamp-paper);
+  mask:
+    radial-gradient(var(--r), #0000 97%, #000) round calc(-1.5 * var(--r))
+      calc(-1.5 * var(--r)) / calc(3 * var(--r)) calc(3 * var(--r)),
+    linear-gradient(#000 0 0) no-repeat 50% / calc(100% - 3 * var(--r))
+      calc(100% - 3 * var(--r));
+}
+
+/* Paper sits on the desk with a real, offset shadow. */
+.on-desk {
+  filter: drop-shadow(0 6px 10px rgb(var(--shadow) / 0.18))
+    drop-shadow(0 1px 1px rgb(var(--shadow) / 0.12));
+}
+
+@keyframes strike {
+  from {
+    transform: scale(1.12);
+    opacity: 0.35;
+    filter: blur(1.5px);
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes unfold {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(-14px);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0);
+  }
+}
+
+.strike {
+  animation: strike 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.unfold {
+  animation: unfold 800ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strike,
+  .unfold {
+    animation: none;
+  }
 }

@@ -19,34 +19,47 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
-export const NODE_COLORS: Record<string, string> = {
-  person: "#00e5ff",
-  conversation: "#ff2bd6",
-  concept: "#39ff14",
-  event: "#ffbe0b",
-  reflection: "#b967ff",
-  project: "#ff6b35",
-};
-
-export const DEFAULT_NODE_COLOR = "#39ff14";
-
-export function colorForType(type: string): string {
-  return NODE_COLORS[type] ?? DEFAULT_NODE_COLOR;
+export interface JournalEntry {
+  timestamp: string;
+  content: string;
+  mood: string;
 }
 
-export const EDGE_COLORS: Record<string, string> = {
-  participates: "#00e5ff",
-  mentions: "#ffbe0b",
-  relates: "#39ff14",
-  prefers: "#ff2bd6",
-  reflects_on: "#b967ff",
-  leads_to: "#ff6b35",
-  sentiment: "#ff4d4d",
-  similarity: "#5fae7a",
-};
+export interface HealthStatus {
+  status: "ok" | "error";
+  collection?: string;
+  exists?: boolean;
+  error?: string;
+}
 
-export const DEFAULT_EDGE_COLOR = "#5fae7a";
+// Las tintas viven como variables CSS (globals.css) para que cambien con el tema.
+// El DOM usa var(...); el canvas del mapa las resuelve con resolveColor.
+const MOODS = [
+  "neutral", "tranquila", "atenta", "curiosa", "contenta", "satisfecha",
+  "entusiasmada", "reflexiva", "preocupada", "triste", "frustrada",
+];
+const NODE_TYPES = ["person", "conversation", "concept", "event", "reflection", "project"];
+const EDGE_TYPES = [
+  "participates", "mentions", "relates", "prefers",
+  "reflects_on", "leads_to", "sentiment", "similarity",
+];
+
+export function colorForMood(mood: string): string {
+  const m = mood.toLowerCase();
+  return MOODS.includes(m) ? `var(--mood-${m})` : "var(--mood-neutral)";
+}
+
+export function colorForType(type: string): string {
+  return NODE_TYPES.includes(type) ? `var(--type-${type})` : "var(--type-default)";
+}
 
 export function colorForEdgeType(type: string): string {
-  return EDGE_COLORS[type] ?? DEFAULT_EDGE_COLOR;
+  return EDGE_TYPES.includes(type) ? `var(--edge-${type})` : "var(--edge-similarity)";
+}
+
+// "var(--x)" → valor computado actual; cualquier otro color pasa tal cual
+export function resolveColor(color: string): string {
+  const m = /^var\((--[\w-]+)\)$/.exec(color);
+  if (!m || typeof document === "undefined") return color;
+  return getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() || color;
 }

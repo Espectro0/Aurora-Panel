@@ -17,7 +17,7 @@ type Config struct {
 	SimilarityThreshold float64
 	MaxGraphPoints      int
 	AllowedOrigins      []string
-	EdgesURL            string
+	BaseURL             string
 }
 
 func Load() Config {
@@ -29,7 +29,7 @@ func Load() Config {
 		SimilarityThreshold: envFloat("SIMILARITY_THRESHOLD", 0.75),
 		MaxGraphPoints:      envInt("MAX_GRAPH_POINTS", 1500),
 		AllowedOrigins:      envList("ALLOWED_ORIGINS", "http://localhost:3000"),
-		EdgesURL:            os.Getenv("AURORA_EDGES_API"),
+		BaseURL:             os.Getenv("AURORA_API_BASE_URL"),
 	}
 }
 
