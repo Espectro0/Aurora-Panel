@@ -41,9 +41,10 @@ func (c Config) RequestTimeout() time.Duration {
 }
 
 // VoiceTimeout covers a whole voice turn: transcription, Aurora's reply
-// (tools included) and speech synthesis.
+// (tools included), a possible confirmation (Aurora waits up to 120 s for it)
+// and speech synthesis.
 func (c Config) VoiceTimeout() time.Duration {
-	return 120 * time.Second
+	return 180 * time.Second
 }
 
 func envOr(key, fallback string) string {

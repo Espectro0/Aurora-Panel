@@ -36,6 +36,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/guard/stream", s.handleGuardStream)
 	mux.HandleFunc("/api/mcp/servers", s.handleMCPServers)
 	mux.HandleFunc("/api/voice", s.handleVoice)
+	mux.HandleFunc("/api/voice/confirm/{id}", s.handleVoiceConfirm)
 	return s.withCORS(mux)
 }
 

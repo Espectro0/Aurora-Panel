@@ -1,23 +1,37 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { sendVoice } from "../lib/api";
-import { etiquetteClass, SectionHeading } from "./Postal";
+import { confirmVoice, streamVoice, VoiceEvent } from "../lib/api";
+import { etiquetteClass, EtiquetteButton, SectionHeading } from "./Postal";
 import VoiceOrb, { OrbState } from "./VoiceOrb";
 
-// Opus en WebM (Chrome, Brave, Edge, Firefox) o en Ogg (Firefox antiguo)
 const OPUS_TYPES = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"];
 
 type Support = "checking" | "ok" | "insecure" | "unsupported";
 
+type Outcome = "approved" | "rejected" | "expired" | "cancelled";
+
+type Asked = { id: string; skill: string; server?: string; outcome?: Outcome };
+
 type Turn = {
   id: number;
-  at: string;
   you?: string;
   aurora?: string;
   error?: string;
   speechError?: string;
-  timings?: { transcribe_ms: number; reply_ms: number; speech_ms: number };
+  asked: Asked[];
+  timings: { transcribe_ms?: number; reply_ms?: number; speech_ms?: number };
+};
+
+type Pending = {
+  id: string;
+  turnId: number;
+  skill: string;
+  server?: string;
+  text: string;
+  sensitive?: boolean;
+  busy: boolean;
+  note?: string;
 };
 
 const MIC_ERRORS: Record<string, string> = {
@@ -26,11 +40,56 @@ const MIC_ERRORS: Record<string, string> = {
   NotReadableError: "The microphone is busy in another app.",
 };
 
+const THINKING = [
+  "Aurora is thinking…",
+  "Consulting the council of tiny gremlins…",
+  "Brewing a reply…",
+  "Googling it…",
+  "Bribing the server with extra RAM…",
+  "Untangling the spaghetti…",
+  "Thinking very hard. Do not disturb.",
+  "Asking the cat. The cat said no.",
+  "Spinning up the hamster wheel…",
+  "Almost there. Probably. Maybe.",
+  "Hallucinating…",
+  "Convulsing…",
+  "Combobulating…",
+  "Discombobulating…",
+  "Recombobulating…",
+  "Flibbertigibbeting…",
+  "Spelunking…",
+  "Overthinking…",
+  "Doodling…",
+  "Dilly-dallying…",
+  "Shenaniganing…",
+  "Lollygagging…",
+  "Bamboozling…",
+  "Hornswoggling…",
+  "Kerfuffling…",
+  "Befuddling…",
+  "Frolicking…",
+  "Gallivanting…",
+  "Moseying…",
+  "Wibbling…",
+  "Wobbling…",
+  "Transmogrifying…",
+];
+
+const THINKING_MS = 3000;
+
 const STATUS: Record<OrbState, string> = {
   idle: "Press talk and speak to Aurora.",
   listening: "Listening… press send when you finish.",
-  thinking: "Aurora is thinking…",
+  thinking: THINKING[0],
+  confirming: "Aurora needs your OK. Say yes or no, or use the buttons.",
   speaking: "Aurora is speaking.",
+};
+
+const OUTCOME_LABEL: Record<Outcome, string> = {
+  approved: "approved",
+  rejected: "rejected",
+  expired: "expired without an answer",
+  cancelled: "cancelled",
 };
 
 function opusType(): string | null {
@@ -53,14 +112,26 @@ export default function VoiceDesk() {
   const [support, setSupport] = useState<Support>("checking");
   const [state, setState] = useState<OrbState>("idle");
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [thought, setThought] = useState(0);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const bufRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const playingRef = useRef<AudioBufferSourceNode | null>(null);
+  // analizador propio del micrófono: va aparte del de Aurora para no sonar por los parlantes
+  const micRef = useRef<{ node: AnalyserNode; src: MediaStreamAudioSourceNode; buf: Uint8Array<ArrayBuffer> } | null>(
+    null,
+  );
   const nextId = useRef(0);
+  const pendingRef = useRef<Pending | null>(null);
+  const inFlightRef = useRef(false);
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -81,7 +152,31 @@ export default function VoiceDesk() {
     };
   }, []);
 
-  // un solo AudioContext, creado con el clic del usuario para que el navegador deje sonar
+useEffect(() => {
+  if (state !== "thinking") return;
+  const t = setInterval(
+    () =>
+      setThought((i) => {
+        const j = Math.floor(Math.random() * (THINKING.length - 1));
+        return j >= i ? j + 1 : j;
+      }),
+    THINKING_MS,
+  );
+  return () => {
+    clearInterval(t);
+    setThought(0);
+  };
+}, [state]);
+
+  const rest = useCallback((): OrbState => {
+    if (pendingRef.current) return "confirming";
+    return inFlightRef.current ? "thinking" : "idle";
+  }, []);
+
+  const settleState = useCallback(() => {
+    setState((s) => (s === "listening" || s === "speaking" ? s : rest()));
+  }, [rest]);
+
   const audio = useCallback(() => {
     if (!audioCtxRef.current) {
       const ctx = new AudioContext();
@@ -96,7 +191,6 @@ export default function VoiceDesk() {
     return { ctx: audioCtxRef.current, analyser: analyserRef.current! };
   }, []);
 
-  // volumen RMS de lo que pase por el analizador: tu micrófono o la voz de Aurora
   const level = useCallback(() => {
     const analyser = analyserRef.current;
     const buf = bufRef.current;
@@ -110,70 +204,159 @@ export default function VoiceDesk() {
     return Math.sqrt(sum / buf.length);
   }, []);
 
-  const settle = useCallback((id: number, patch: Partial<Turn>) => {
-    setTurns((p) => p.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  // volumen RMS de tu voz mientras grabas
+  const micLevel = useCallback(() => {
+    const m = micRef.current;
+    if (!m) return 0;
+    m.node.getByteTimeDomainData(m.buf);
+    let sum = 0;
+    for (let i = 0; i < m.buf.length; i++) {
+      const v = (m.buf[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / m.buf.length);
+  }, []);
+
+  const settle =useCallback((id: number, patch: (t: Turn) => Partial<Turn>) => {
+    setTurns((p) => p.map((t) => (t.id === id ? { ...t, ...patch(t) } : t)));
+  }, []);
+
+  const openPending = useCallback((p: Pending | null) => {
+    pendingRef.current = p;
+    setPending(p);
   }, []);
 
   const play = useCallback(
     async (wavB64: string) => {
       const { ctx, analyser } = audio();
       const buffer = await ctx.decodeAudioData(base64ToBuffer(wavB64));
+      playingRef.current?.stop();
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       src.connect(analyser);
       analyser.connect(ctx.destination);
       src.onended = () => {
         src.disconnect();
+        if (playingRef.current !== src) return;
         analyser.disconnect();
-        if (playingRef.current === src) playingRef.current = null;
-        setState((s) => (s === "speaking" ? "idle" : s));
+        playingRef.current = null;
+        setState((s) => (s === "speaking" ? rest() : s));
       };
       playingRef.current = src;
       setState("speaking");
       src.start();
     },
-    [audio],
+    [audio, rest],
+  );
+
+  const speak = useCallback(
+    (wavB64: string | undefined, turnId: number) => {
+      if (!wavB64) return;
+      play(wavB64).catch((e: Error) =>
+        settle(turnId, () => ({ speechError: `couldn’t play Aurora’s voice: ${e.message}` })),
+      );
+    },
+    [play, settle],
+  );
+
+  const onEvent = useCallback(
+    (turnId: number, e: VoiceEvent) => {
+      switch (e.type) {
+        case "transcript":
+          settle(turnId, (t) => ({ you: e.text, timings: { ...t.timings, transcribe_ms: e.ms } }));
+          break;
+        case "confirm":
+          openPending({
+            id: e.id,
+            turnId,
+            skill: e.skill,
+            server: e.server,
+            text: e.text,
+            sensitive: e.sensitive,
+            busy: false,
+          });
+          settle(turnId, (t) => ({ asked: [...t.asked, { id: e.id, skill: e.skill, server: e.server }] }));
+          if (e.audio) speak(e.audio, turnId);
+          else settleState();
+          break;
+        case "confirm_result": {
+          const outcome: Outcome =
+            e.approved === true ? "approved" : e.approved === false ? "rejected" : e.text === "expired" ? "expired" : "cancelled";
+          if (pendingRef.current?.id === e.id) openPending(null);
+          settle(turnId, (t) => ({ asked: t.asked.map((a) => (a.id === e.id ? { ...a, outcome } : a)) }));
+          settleState();
+          break;
+        }
+        case "reply":
+          settle(turnId, (t) => ({ aurora: e.text, timings: { ...t.timings, reply_ms: e.ms } }));
+          break;
+        case "audio":
+          settle(turnId, (t) => ({ timings: { ...t.timings, speech_ms: e.ms } }));
+          speak(e.audio, turnId);
+          break;
+        case "speech_error":
+          settle(turnId, () => ({ speechError: e.error }));
+          break;
+        case "error":
+          settle(turnId, () => ({ error: e.error }));
+          break;
+      }
+    },
+    [openPending, settle, settleState, speak],
   );
 
   const deliver = useCallback(
     (clip: Blob) => {
       const id = nextId.current++;
-      setTurns((p) => [...p, { id, at: new Date().toISOString() }].slice(-30));
+      setTurns([{ id, asked: [], timings: {} }]);
+      inFlightRef.current = true;
       setState("thinking");
 
-      sendVoice(clip)
-        .then(async (turn) => {
-          settle(id, {
-            you: turn.transcript,
-            aurora: turn.reply,
-            speechError: turn.speech_error,
-            timings: turn.timings,
-          });
-          if (turn.audio) {
-            try {
-              await play(turn.audio);
-              return;
-            } catch (e) {
-              settle(id, { speechError: `couldn’t play the reply: ${(e as Error).message}` });
-            }
-          }
-          setState("idle");
-        })
-        .catch((e: Error) => {
-          settle(id, { error: e.message });
-          setState("idle");
+      streamVoice(clip, (e) => onEvent(id, e))
+        .catch((e: Error) => settle(id, () => ({ error: e.message })))
+        .finally(() => {
+          inFlightRef.current = false;
+          if (pendingRef.current?.turnId === id) openPending(null);
+          settleState();
         });
     },
-    [play, settle],
+    [onEvent, openPending, settle, settleState],
+  );
+
+  const answer = useCallback(
+    (reply: { answer: "yes" | "no" } | { clip: Blob }) => {
+      const p = pendingRef.current;
+      if (!p) return;
+      openPending({ ...p, busy: true, note: "clip" in reply ? "Checking your answer…" : undefined });
+      setState("confirming");
+
+      confirmVoice(p.id, reply)
+        .then((r) => {
+          if (pendingRef.current?.id !== p.id) return;
+          if (r.decision === "unclear") {
+            openPending({
+              ...p,
+              busy: false,
+              note: `Didn’t catch a clear yes or no${r.transcript ? ` (heard “${r.transcript}”)` : ""}.`,
+            });
+            speak(r.audio, p.turnId);
+            return;
+          }
+          openPending({ ...p, busy: true, note: r.decision === "yes" ? "Approved, running it…" : "Rejected." });
+        })
+        .catch((e: Error) => {
+          if (pendingRef.current?.id === p.id) openPending({ ...p, busy: false, note: e.message });
+        });
+    },
+    [openPending, speak],
   );
 
   const talk = useCallback(async () => {
     const mimeType = opusType();
     if (!mimeType) return;
     setError(null);
-    // hablar encima de Aurora la interrumpe
     playingRef.current?.stop();
-    audio();
+    const { ctx } = audio();
 
     let stream: MediaStream;
     try {
@@ -186,22 +369,35 @@ export default function VoiceDesk() {
       return;
     }
 
+    // el micrófono solo entra al analizador, nunca a ctx.destination
+    const node = ctx.createAnalyser();
+    node.fftSize = 1024;
+    node.smoothingTimeConstant = 0.6;
+    const src = ctx.createMediaStreamSource(stream);
+    src.connect(node);
+    micRef.current = { node, src, buf: new Uint8Array(node.fftSize) };
+
     const rec = new MediaRecorder(stream, { mimeType });
     const chunks: Blob[] = [];
     rec.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
     };
     rec.onstop = () => {
-      // suelta el micrófono para que el navegador apague su indicador
+      src.disconnect();
+      if (micRef.current?.src === src) micRef.current = null;
       stream.getTracks().forEach((t) => t.stop());
-      if (chunks.length > 0) deliver(new Blob(chunks, { type: mimeType }));
-      else setState("idle");
+      const clip = chunks.length > 0 ? new Blob(chunks, { type: mimeType }) : null;
+      if (pendingRef.current) {
+        if (clip) answer({ clip });
+        else setState("confirming");
+      } else if (clip) deliver(clip);
+      else setState(rest());
     };
 
     recRef.current = rec;
     rec.start();
     setState("listening");
-  }, [audio, deliver]);
+  }, [answer, audio, deliver, rest]);
 
   const send = useCallback(() => {
     const rec = recRef.current;
@@ -214,7 +410,7 @@ export default function VoiceDesk() {
 
   const listening = state === "listening";
   const onButton = listening ? send : state === "speaking" ? hush : talk;
-  const buttonLabel = listening ? "Send" : state === "speaking" ? "Stop" : "Talk";
+  const buttonLabel = listening ? "Send" : state === "speaking" ? "Stop" : pending ? "Answer" : "Talk";
 
   return (
     <div className="mx-auto flex w-full max-w-[860px] flex-1 flex-col gap-10 px-4 pt-8 pb-20 sm:px-6 sm:pt-10">
@@ -230,7 +426,7 @@ export default function VoiceDesk() {
       <section aria-label="Voice conversation">
         <div className="flex flex-col items-center gap-5">
           <div className="aspect-[16/10] w-full max-w-[560px]">
-            <VoiceOrb state={state} level={level} />
+            <VoiceOrb state={state} level={level} mic={micLevel} />
           </div>
 
           {support === "insecure" && (
@@ -250,13 +446,13 @@ export default function VoiceDesk() {
 
           {support === "ok" && (
             <>
-              <p aria-live="polite" className="font-serif text-lg text-ink-2 italic">
-                {STATUS[state]}
+              <p aria-live="polite" className="text-center font-serif text-lg text-ink-2 italic">
+                {state === "thinking" ? THINKING[thought] : STATUS[state]}
               </p>
               <button
                 type="button"
                 onClick={onButton}
-                disabled={state === "thinking"}
+                disabled={state === "thinking" || (pending?.busy && !listening)}
                 aria-pressed={listening}
                 className={`${etiquetteClass(listening)} min-w-[8rem]`}
               >
@@ -269,6 +465,8 @@ export default function VoiceDesk() {
               </button>
             </>
           )}
+
+          {pending && <ConfirmCard pending={pending} onAnswer={(a) => answer({ answer: a })} />}
 
           {error && (
             <p role="alert" className="text-sm font-semibold text-danger">
@@ -296,6 +494,13 @@ export default function VoiceDesk() {
                         {t.you}
                       </p>
                     )}
+                    {t.asked.map((a) => (
+                      <p key={a.id} className="text-sm text-ink-2">
+                        <span className="postal mr-2 text-[0.75rem] text-warn">Guard</span>
+                        Asked to run <span className="font-mono text-ink">{a.skill}</span>
+                        {a.server && <> on {a.server}</>} · {a.outcome ? OUTCOME_LABEL[a.outcome] : "waiting for you"}
+                      </p>
+                    ))}
                     {t.aurora && (
                       <p className="font-serif text-lg whitespace-pre-wrap text-ink">
                         <span className="postal mr-2 font-sans text-[0.75rem] text-airmail-blue">Aurora</span>
@@ -303,10 +508,10 @@ export default function VoiceDesk() {
                       </p>
                     )}
                     {t.speechError && <p className="text-sm text-danger">No voice: {t.speechError}</p>}
-                    {t.timings && (
+                    {t.timings.reply_ms !== undefined && (
                       <p className="text-[0.75rem] text-ink-2">
-                        heard in {secs(t.timings.transcribe_ms)} · replied in {secs(t.timings.reply_ms)}
-                        {t.timings.speech_ms > 0 && ` · voiced in ${secs(t.timings.speech_ms)}`}
+                        heard in {secs(t.timings.transcribe_ms ?? 0)} · replied in {secs(t.timings.reply_ms)}
+                        {t.timings.speech_ms !== undefined && ` · voiced in ${secs(t.timings.speech_ms)}`}
                       </p>
                     )}
                   </li>
@@ -316,6 +521,39 @@ export default function VoiceDesk() {
           </div>
         </div>
       </section>
+    </div>
+  );
+}
+
+function ConfirmCard({ pending, onAnswer }: { pending: Pending; onAnswer: (a: "yes" | "no") => void }) {
+  return (
+    <div role="alertdialog" aria-labelledby="confirm-heading" className="on-desk w-full max-w-[560px]">
+      <div className="flex flex-col gap-3 border-l-4 border-warn bg-onion px-5 py-4">
+        <h2 id="confirm-heading" className="text-ink">
+          <span className="postal mr-2 text-[0.75rem] text-warn">Needs your OK</span>
+          Run <span className="font-mono">{pending.skill}</span>
+          {pending.server && <> on {pending.server}</>}?
+        </h2>
+        <pre className="max-h-64 overflow-auto border border-rule bg-stamp-paper p-3 font-mono text-[0.78rem] whitespace-pre-wrap break-words text-ink">
+          {pending.text}
+        </pre>
+        {pending.sensitive && (
+          <p className="text-sm text-ink-2">The arguments contain sensitive data, so they’re hidden.</p>
+        )}
+        {pending.note && (
+          <p aria-live="polite" className="text-sm text-ink-2">
+            {pending.note}
+          </p>
+        )}
+        <div className="flex gap-2">
+          <EtiquetteButton onClick={() => onAnswer("yes")} disabled={pending.busy}>
+            Approve
+          </EtiquetteButton>
+          <EtiquetteButton onClick={() => onAnswer("no")} disabled={pending.busy}>
+            Reject
+          </EtiquetteButton>
+        </div>
+      </div>
     </div>
   );
 }
